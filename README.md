@@ -6,6 +6,3 @@
 
 <h4>How it Works</h4>
 <p>The script will loop through the packed files and create a directory for each of them. If a folder already exists with the same name it will overwrite it</p>
-
-<h4>Extra</h4>
-<p>If the need for a re-packer rises I will be more than happy to make one, as for now the demand is not high enough to catch my attention</p>
