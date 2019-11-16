@@ -1,14 +1,21 @@
-import struct
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
-import time
 import sys
+import struct
+from pathlib import Path
+from time import sleep
 
-def log(msg):
-	print(msg)
-	print("Exiting in 5 seconds..")
-	time.sleep(5)
-	sys.exit(-1)
 
+ENDIANNESS = '>' # Big endian
+STRUCT_SIGNS = {
+	1 : 'c',
+	2 : 'H',
+	4 : 'I',
+	8 : 'Q'
+}
+# Define a basic IPK file header
 IPK_HEADER = {
 	'magic' : 		{'size' : 4},
 	'version' : 	{'size' : 4},
@@ -18,6 +25,13 @@ IPK_HEADER = {
 	'unk2' : 		{'size' : 28}
 }
 
+def _exit(msg):
+	print(msg)
+	print("Exiting in 5 seconds..")
+	sleep(5)
+	sys.exit(-1)
+
+# Chunks in the IPK files
 def get_chunk():
 	return {
 	'unk1' : 		{'size' : 4},
@@ -32,64 +46,77 @@ def get_chunk():
 	'checksum' : 	{'size' : 4},
 	'unk2' : 		{'size' : 4}
 }
-def unpack(file):
-	#Get file header information
-	for k,v in enumerate(IPK_HEADER):
-		IPK_HEADER[v]['value'] = file.read(IPK_HEADER[v]['size'])
 
-	if IPK_HEADER['magic']['value'] != b'\x50\xEC\x12\xBA':
-		log("Error: This is not a valid IPK file!")
+def unpack(_bytes):
+	return struct.unpack(ENDIANNESS + STRUCT_SIGNS[len(_bytes)], _bytes)[0]
 
-	num_files = IPK_HEADER['num_files']['value']
-	file_chunks = []
 
-	#Set the file values from the struct
-	print("Log: Unpacking {} files..".format(struct.unpack('>I', num_files)[0]))
-	for _ in range(struct.unpack('>I', num_files)[0]):
-		chunk = get_chunk()
-		for k,v in enumerate(chunk):
-			if v == 'path_name':
-				chunk[v]['value'] = file.read(struct.unpack('>I', chunk['path_size']['value'])[0])
-			elif v == 'file_name':
-				chunk[v]['value'] = file.read(struct.unpack('>I', chunk['name_size']['value'])[0])
-			else:
-				chunk[v]['value'] = file.read(chunk[v]['size'])
+# This function will handle the data extraction from the files
+def extract(target_file):
+	with open(target_file, 'rb') as file:
+		# Get file header information
+		for k, v in enumerate(IPK_HEADER):
+			IPK_HEADER[v]['value'] = file.read(IPK_HEADER[v]['size'])
 
-		file_chunks.append(chunk)
+		# Check if this is a proper IPK file
+		assert IPK_HEADER['magic']['value'] == b'\x50\xEC\x12\xBA'
 
-	#Create the directory for the extracted folders
-	extracted_folder = sys.argv[1][:sys.argv[1].find('.')]
-	if os.path.isdir(extracted_folder) == False:
-		os.mkdir(extracted_folder)
-	os.chdir(extracted_folder)
+		num_files = unpack(IPK_HEADER['num_files']['value'])
+		print(f"Log: Found {num_files} files..")
 
-	print("Log: Extracting data to folder named '{}' in '{}'..".format(extracted_folder, os.path.dirname(sys.argv[0])))
+		# Go through the file and collect the data
+		file_chunks = []
+		for _ in range(num_files):
+			chunk = get_chunk()
+			for k,v in enumerate(chunk):
+				_size = chunk[v]['size']
 
-	#Collect the raw data for the files
-	base_offset = struct.unpack('>I', IPK_HEADER['base_offset']['value'])[0]
-	for k,v in enumerate(file_chunks):
-		offset = struct.unpack('>II', file_chunks[k]['offset']['value'])[1]
-		data_size = struct.unpack('>I', file_chunks[k]['size']['value'])[0]
-		path = file_chunks[k]['path_name']['value'].decode()
-		file_name = file_chunks[k]['file_name']['value'].decode()
+				if v == 'path_name': _size = unpack(chunk['path_size']['value'])
+				if v == 'file_name': _size = unpack(chunk['name_size']['value'])
 
-		file.seek(offset + base_offset)
+				chunk[v]['value'] = file.read(_size)
 
-		#Make the sub directories
-		if os.path.isdir(path) == False:
-			os.makedirs(path)
+			file_chunks.append(chunk)
 
-		with open(path + '\\' + file_name, 'wb') as ff:
-			ff.write(file.read(data_size))
+		# Create the directory for the extracted folders
+		ext_dir = Path(target_file.stem)
+		ext_dir.mkdir(exist_ok=True)
+		os.chdir(ext_dir)
 
-	log("Log: Program finished.")
+		print(f"Log: Extracting data to {ext_dir.name} in {Path.cwd()}..")
+		base_offset = unpack(IPK_HEADER['base_offset']['value'])
+
+		for k, v in enumerate(file_chunks):
+
+			# File raw data
+			offset = unpack(file_chunks[k]['offset']['value'])
+			data_size = unpack(file_chunks[k]['size']['value'])
+
+			# File names and creation
+			file_path = Path.cwd() / file_chunks[k]['path_name']['value'].decode() #utf8
+			file_name = file_chunks[k]['file_name']['value'].decode()
+
+			file.seek(offset + base_offset)
+
+			# Make the sub directories
+			file_path.mkdir(parents=True, exist_ok=True)
+
+			with open(file_path / file_name, 'wb') as ff:
+				ff.write(file.read(data_size))
+
+
+	_exit("Log: Program finished.")
 		
-#main
+
+# Check if the proper arguements were given
 args = sys.argv
 if len(args) <= 1:
-	log("Error: Please specify a target ipk file to unpack!")
+	_exit("Error: Please specify a target .IPK file to unpack! ie, ipk_unpack.py ipk_file")
 
-if os.path.isfile(args[1]):
-	#Create a IPK class and unpack its contents
-	with open(args[1], 'rb') as file:
-		unpack(file)
+# Check if the file exists
+target_file = Path(args[1])
+if not target_file.exists():
+	_exit(f"Error: The file '{target_file.name}' was not found!")
+
+# Unpack the file otherwise
+extract(target_file)
