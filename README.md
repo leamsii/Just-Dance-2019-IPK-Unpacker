@@ -7,3 +7,6 @@
 
 <h4>How it Works</h4>
 <p>The script will loop through the packed files and create a directory for each of them. If a folder already exists with the same name it will overwrite it</p>
+
+<h2>Happy Modding!</h2>
+<img src = "https://www.chaoshour.com/wp-content/uploads/2018/10/justdance6.jpg" width = "400" height = "300">
